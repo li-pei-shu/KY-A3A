@@ -19,11 +19,30 @@ $headers = @{
   'User-Agent' = 'KY-A3A-Mobile-Inbox'
 }
 
+function Get-AllIssueComments {
+  param(
+    [Parameter(Mandatory = $true)][string]$Repo,
+    [Parameter(Mandatory = $true)][int]$Issue,
+    [Parameter(Mandatory = $true)]$Headers
+  )
+
+  $all = @()
+  $page = 1
+  while ($true) {
+    $commentsUri = "https://api.github.com/repos/$Repo/issues/$Issue/comments?per_page=100&page=$page"
+    $batch = @(Invoke-RestMethod -Method Get -Uri $commentsUri -Headers $Headers)
+    if (-not $batch -or $batch.Count -eq 0) { break }
+    $all += $batch
+    if ($batch.Count -lt 100) { break }
+    $page += 1
+  }
+  return $all
+}
+
 $issueUri = "https://api.github.com/repos/$Repo/issues/$Issue"
-$commentsUri = "https://api.github.com/repos/$Repo/issues/$Issue/comments?per_page=100"
 
 $issueData = Invoke-RestMethod -Method Get -Uri $issueUri -Headers $headers
-$comments = Invoke-RestMethod -Method Get -Uri $commentsUri -Headers $headers
+$comments = Get-AllIssueComments -Repo $Repo -Issue $Issue -Headers $headers
 
 "# $($issueData.title)"
 "URL: $($issueData.html_url)"
