@@ -6,6 +6,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 $credInput = "protocol=https`nhost=github.com`n`n"
 $cred = $credInput | git credential fill
