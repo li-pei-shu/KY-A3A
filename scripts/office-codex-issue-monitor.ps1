@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 <#
 Office Codex Issue Monitor
@@ -6,37 +8,51 @@ Office Codex Issue Monitor
 Purpose:
 - Poll GitHub Issue #1 in li-pei-shu/KY-A3A.
 - Find new commands that contain @office-codex, 通知C, or 查C.
-- Immediately reply with "Status: received by Office Codex".
-- For safe status commands, reply with a status report.
-- Store processed comment ids locally to avoid duplicate replies.
+- Immediately reply with "Status: received task <comment id>".
+- Call scripts/Invoke-OfficeCodexTask.ps1 for safe tasks.
+- Reply with the runner result.
+- Store processed comment ids locally to avoid duplicate execution.
 
 Required environment variable:
-- GITHUB_TOKEN or OFFICE_CODEX_GITHUB_TOKEN
+- GITHUB_TOKEN
+
+Optional environment variables:
+- GITHUB_REPO=li-pei-shu/KY-A3A
+- MOBILE_INBOX_ISSUE_NUMBER=1
+- OFFICE_CODEX_WORKDIR=<local repo path>
 
 Token scope:
 - Fine-grained token with access to li-pei-shu/KY-A3A issues: read/write.
 
 Safety:
-- Does not modify project files.
+- Does not write tokens to disk.
+- Does not auto-push main.
 - Does not deploy.
-- Does not reveal credentials.
+- Dangerous tasks are blocked by Invoke-OfficeCodexTask.ps1 and require manual confirmation.
 #>
 
-$Owner = 'li-pei-shu'
-$Repo = 'KY-A3A'
-$IssueNumber = 1
+$GitHubRepo = if ($env:GITHUB_REPO) { $env:GITHUB_REPO } else { 'li-pei-shu/KY-A3A' }
+$RepoParts = $GitHubRepo.Split('/', 2)
+if ($RepoParts.Count -ne 2 -or [string]::IsNullOrWhiteSpace($RepoParts[0]) -or [string]::IsNullOrWhiteSpace($RepoParts[1])) {
+    throw "Invalid GITHUB_REPO value '$GitHubRepo'. Expected owner/repo."
+}
+
+$Owner = $RepoParts[0]
+$Repo = $RepoParts[1]
+$IssueNumber = if ($env:MOBILE_INBOX_ISSUE_NUMBER) { [int]$env:MOBILE_INBOX_ISSUE_NUMBER } else { 1 }
 $PollSeconds = 60
 $StateDir = Join-Path $env:USERPROFILE '.office-codex-relay'
 $StateFile = Join-Path $StateDir 'processed-comments.json'
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$RunnerScript = Join-Path $ScriptDir 'Invoke-OfficeCodexTask.ps1'
 
 if (-not (Test-Path $StateDir)) {
     New-Item -ItemType Directory -Path $StateDir | Out-Null
 }
 
 function Get-Token {
-    if ($env:OFFICE_CODEX_GITHUB_TOKEN) { return $env:OFFICE_CODEX_GITHUB_TOKEN }
     if ($env:GITHUB_TOKEN) { return $env:GITHUB_TOKEN }
-    throw 'Missing OFFICE_CODEX_GITHUB_TOKEN or GITHUB_TOKEN environment variable.'
+    throw 'Missing GITHUB_TOKEN environment variable.'
 }
 
 function Get-Headers {
@@ -83,16 +99,16 @@ function Save-ProcessedIds {
 function Is-OfficeCodexCommand {
     param([string]$Body)
     if ($Body -match '@office-codex') { return $true }
-    if ($Body -match '通知C[:：]') { return $true }
-    if ($Body -match '查C[:：]') { return $true }
+    if ($Body -match '通知C') { return $true }
+    if ($Body -match '查C') { return $true }
     return $false
 }
 
 function Convert-Command {
     param([string]$Body)
     $text = $Body.Trim()
-    if ($text -match '通知C[:：]\s*(.+)') { return $Matches[1].Trim() }
-    if ($text -match '查C[:：]\s*(.+)') { return ('status ' + $Matches[1].Trim()) }
+    if ($text -match '通知C[:：]?\s*(.+)') { return $Matches[1].Trim() }
+    if ($text -match '查C[:：]?\s*(.+)') { return ('status ' + $Matches[1].Trim()) }
     if ($text -match '@office-codex\s*(.*)') {
         $cmd = $Matches[1].Trim()
         if ($cmd) { return $cmd }
@@ -101,90 +117,79 @@ function Convert-Command {
     return $text
 }
 
-function Test-UnsafeCommand {
-    param([string]$Command)
-    $unsafe = @('password','token','secret','key','密碼','憑證','刪除','delete','部署','deploy','付費','付款','runner registration token')
-    foreach ($u in $unsafe) {
-        if ($Command -match [regex]::Escape($u)) { return $true }
-    }
-    return $false
-}
-
-function Get-RunnerLocalStatus {
-    $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add("Host: $env:COMPUTERNAME")
-    $lines.Add("User: $env:USERNAME")
-    $lines.Add("Time: $((Get-Date).ToString('s'))")
-
-    # Check common GitHub runner folders without exposing secrets.
-    $candidateDirs = @(
-        (Join-Path $env:USERPROFILE 'actions-runner'),
-        'C:\actions-runner',
-        'C:\GitHubActionsRunner',
-        (Join-Path $env:USERPROFILE 'Downloads\actions-runner')
+function Convert-RunnerResultToIssueBody {
+    param(
+        [Parameter(Mandatory = $true)]$Result,
+        [Parameter(Mandatory = $true)][string]$CommentId,
+        [Parameter(Mandatory = $true)][string]$Command
     )
 
-    $foundRunner = $false
-    foreach ($dir in $candidateDirs) {
-        if (Test-Path $dir) {
-            $foundRunner = $true
-            $lines.Add("Runner folder found: $dir")
-            if (Test-Path (Join-Path $dir '.runner')) { $lines.Add('Runner config file: found') }
-            if (Test-Path (Join-Path $dir 'run.cmd')) { $lines.Add('run.cmd: found') }
-            if (Test-Path (Join-Path $dir 'svc.sh')) { $lines.Add('svc.sh: found') }
-        }
-    }
-    if (-not $foundRunner) { $lines.Add('Runner folder: not found in common paths') }
+    $status = if ($Result.status) { [string]$Result.status } else { 'failed' }
+    $exitCode = if ($null -ne $Result.exit_code) { [string]$Result.exit_code } else { 'unknown' }
+    $reason = if ($Result.reason) { [string]$Result.reason } else { '' }
+    $summary = if ($Result.summary) { [string]$Result.summary } else { '' }
+    $outputTail = if ($Result.output_tail) { [string]$Result.output_tail } else { '' }
+    $needDecision = if ($status -eq 'blocked') { 'yes' } else { 'no' }
 
-    $services = Get-Service | Where-Object { $_.Name -like 'actions.runner.*' -or $_.DisplayName -like '*GitHub Actions Runner*' }
-    if ($services) {
-        foreach ($svc in $services) { $lines.Add("Runner service: $($svc.Name) / $($svc.Status)") }
-    } else {
-        $lines.Add('Runner service: not found')
+    if ($outputTail.Length -gt 6000) {
+        $outputTail = $outputTail.Substring($outputTail.Length - 6000)
     }
 
-    return ($lines -join "`n")
+    $body = @"
+Status: $status.
+Task source comment: #$CommentId
+Command: $Command
+Exit code: $exitCode
+Need user decision: $needDecision
+"@
+
+    if ($reason) {
+        $body += "`nReason: $reason`n"
+    }
+    if ($summary) {
+        $body += "`nSummary: $summary`n"
+    }
+    if ($outputTail) {
+        $body += @"
+
+Output tail:
+``````text
+$outputTail
+``````
+"@
+    }
+
+    return $body
 }
 
-function Get-SafeStatusReport {
-    param([string]$Command)
+function Invoke-OfficeCodexRunner {
+    param(
+        [Parameter(Mandatory = $true)][string]$Command,
+        [Parameter(Mandatory = $true)][string]$CommentId
+    )
 
-    $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add("Command: $Command")
-    $lines.Add("Host: $env:COMPUTERNAME")
-    $lines.Add("User: $env:USERNAME")
-    $lines.Add("Time: $((Get-Date).ToString('s'))")
-
-    if ($Command -match 'runner') {
-        $lines.Add('')
-        $lines.Add('Runner status:')
-        $lines.Add((Get-RunnerLocalStatus))
+    if (-not (Test-Path $RunnerScript)) {
+        throw "Runner script not found: $RunnerScript"
     }
 
-    if ($Command -match 'ssh|SSH|sh|Git Bash|bash') {
-        $sshd = Get-Service sshd -ErrorAction SilentlyContinue
-        if ($sshd) { $lines.Add("sshd: $($sshd.Status) / $($sshd.StartType)") } else { $lines.Add('sshd: not found') }
+    $jsonText = & powershell -NoProfile -ExecutionPolicy Bypass -File $RunnerScript -TaskBody $Command -CommentId $CommentId
+    if ($LASTEXITCODE -ne 0) {
+        throw "Runner process failed with exit code $LASTEXITCODE."
+    }
 
-        $defaultShell = $null
-        try { $defaultShell = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell -ErrorAction SilentlyContinue).DefaultShell } catch {}
-        if ($defaultShell) { $lines.Add("OpenSSH DefaultShell: $defaultShell") } else { $lines.Add('OpenSSH DefaultShell: not set') }
-
-        $shPaths = @('C:\Program Files\Git\usr\bin\sh.exe','C:\Program Files\Git\bin\bash.exe')
-        foreach ($p in $shPaths) {
-            if (Test-Path $p) { $lines.Add("Found: $p") } else { $lines.Add("Missing: $p") }
+    try {
+        return ($jsonText | ConvertFrom-Json)
+    } catch {
+        $safe = ($jsonText | Out-String).Trim()
+        return [pscustomobject]@{
+            status = 'failed'
+            comment_id = $CommentId
+            exit_code = -1
+            reason = 'Runner returned non-JSON output.'
+            summary = ''
+            output_tail = $safe
         }
     }
-
-    if ($Command -match '3D|A3A|建模|status') {
-        $a3a = 'C:\Users\st\OneDrive\文件\3D建模\a3a'
-        if (Test-Path $a3a) { $lines.Add("A3A path: $a3a") } else { $lines.Add('A3A path: not found at expected path') }
-        try {
-            $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/health' -TimeoutSec 3
-            $lines.Add('A3A health: ' + (($health | ConvertTo-Json -Compress -Depth 10)))
-        } catch { $lines.Add('A3A health: failed - ' + $_.Exception.Message) }
-    }
-
-    return ($lines -join "`n")
 }
 
 function Process-Comment {
@@ -195,38 +200,31 @@ function Process-Comment {
     $command = Convert-Command -Body $body
 
     $ack = @"
-Status: received by Office Codex.
+Status: received task $commentId.
 Task source comment: #$commentId
 Command: $command
 "@
     Add-IssueComment -Body $ack
 
-    if (Test-UnsafeCommand -Command $command) {
-        $blocked = @"
-Status: blocked.
+    try {
+        $result = Invoke-OfficeCodexRunner -Command $command -CommentId $commentId
+        $reply = Convert-RunnerResultToIssueBody -Result $result -CommentId $commentId -Command $command
+        Add-IssueComment -Body $reply
+    } catch {
+        $failed = @"
+Status: failed.
 Task source comment: #$commentId
 Command: $command
-Reason: command contains sensitive or high-impact terms. Please confirm explicitly before execution.
+Reason: $($_.Exception.Message)
 Need user decision: yes
 "@
-        Add-IssueComment -Body $blocked
-        return
+        Add-IssueComment -Body $failed
     }
-
-    $report = Get-SafeStatusReport -Command $command
-    $result = @"
-Status: done.
-Task source comment: #$commentId
-
-$result
-
-Need user decision: no, unless you want follow-up action.
-"@
-    Add-IssueComment -Body $result
 }
 
 Write-Host 'Office Codex Issue Monitor started.'
 Write-Host "Repo: $Owner/$Repo Issue #$IssueNumber Poll: $PollSeconds sec"
+Write-Host "Runner: $RunnerScript"
 
 while ($true) {
     try {
@@ -247,8 +245,8 @@ while ($true) {
                 Process-Comment -Comment $comment
             }
             $processed[$id] = $true
+            Save-ProcessedIds -Map $processed
         }
-        Save-ProcessedIds -Map $processed
     } catch {
         Write-Host ('Monitor error: ' + $_.Exception.Message)
     }
