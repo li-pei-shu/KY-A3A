@@ -32,6 +32,44 @@ function New-Result {
 function Test-UnsafeTask {
     param([string]$Text)
 
+    $safeRegexPatterns = @(
+        '(?i)\bdeploy\b',
+        '(?i)\bdelete\b',
+        '(?i)\bremove\b',
+        '(?i)\brm\s+-rf\b',
+        '(?i)\bpush\s+main\b',
+        '(?i)\bgit\s+push\b',
+        '(?i)\bsecret\b',
+        '(?i)\btoken\b',
+        '(?i)\bpassword\b',
+        '(?i)\bapi[_-]?key\b'
+    )
+
+    foreach ($pattern in $safeRegexPatterns) {
+        if ($Text -match $pattern) { return $pattern }
+    }
+
+    $literalUnsafeTerms = @(
+        (([string][char]0x90E8) + ([string][char]0x7F72)), # deploy
+        (([string][char]0x522A) + ([string][char]0x9664)), # delete, traditional
+        (([string][char]0x5220) + ([string][char]0x9664)), # delete, simplified
+        (([string][char]0x79FB) + ([string][char]0x9664)), # remove
+        (([string][char]0x63A8) + ([string][char]0x9001)), # push
+        (([string][char]0x5BC6) + ([string][char]0x78BC)), # password, traditional
+        (([string][char]0x5BC6) + ([string][char]0x7801)), # password, simplified
+        (([string][char]0x6191) + ([string][char]0x8B49)), # credential, traditional
+        (([string][char]0x51ED) + ([string][char]0x8BC1)), # credential, simplified
+        (([string][char]0x91D1) + ([string][char]0x9470)), # key, traditional
+        (([string][char]0x5BC6) + ([string][char]0x94A5))  # key, simplified
+    )
+
+    foreach ($term in $literalUnsafeTerms) {
+        if ($Text.IndexOf($term, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $term }
+    }
+
+    return $null
+
+<#
     $patterns = @(
         '(?i)\bdeploy\b',
         '(?i)\bdelete\b',
@@ -60,6 +98,7 @@ function Test-UnsafeTask {
         if ($Text -match $pattern) { return $pattern }
     }
     return $null
+#>
 }
 
 function Get-SafeOutputTail {

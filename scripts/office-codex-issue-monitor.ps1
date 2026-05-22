@@ -116,36 +116,68 @@ function Get-TextAfterTrigger {
     return $rest
 }
 
+function Get-FirstNonEmptyLine {
+    param([string]$Text)
+
+    foreach ($line in ($Text -split "`r?`n")) {
+        $trimmed = $line.Trim()
+        if ($trimmed.Length -gt 0) { return $trimmed }
+    }
+    return ''
+}
+
 function Is-OfficeCodexCommand {
     param([string]$Body)
-    if ($Body.IndexOf('@office-codex', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
-    if ($Body.IndexOf('notify-C', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
-    if ($Body.IndexOf('check-C', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
-    if ($Body.IndexOf($script:NotifyTrigger, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
-    if ($Body.IndexOf($script:CheckTrigger, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+    $first = Get-FirstNonEmptyLine -Text $Body
+    if ([string]::IsNullOrWhiteSpace($first)) { return $false }
+
+    # Do not re-process our own issue replies just because they mention a trigger in context.
+    if ($first.StartsWith('Status:', [System.StringComparison]::OrdinalIgnoreCase)) { return $false }
+
+    if ($first.StartsWith('@office-codex', [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    if ($first.StartsWith('notify-C', [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    if ($first.StartsWith('check-C', [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    if ($first.StartsWith($script:NotifyTrigger, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    if ($first.StartsWith($script:CheckTrigger, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
     return $false
 }
 
 function Convert-Command {
     param([string]$Body)
     $text = $Body.Trim()
+    $lines = @($text -split "`r?`n")
+    $firstIndex = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if (-not [string]::IsNullOrWhiteSpace($lines[$i])) {
+            $firstIndex = $i
+            break
+        }
+    }
+    if ($firstIndex -lt 0) { return '' }
 
-    $notify = Get-TextAfterTrigger -Text $text -Trigger 'notify-C'
+    $first = $lines[$firstIndex].Trim()
+    $remaining = ''
+    if ($firstIndex + 1 -lt $lines.Count) {
+        $remaining = (($lines | Select-Object -Skip ($firstIndex + 1)) -join "`n").Trim()
+    }
+
+    $notify = Get-TextAfterTrigger -Text $first -Trigger 'notify-C'
     if ($null -ne $notify) { return $notify.Trim() }
 
-    $check = Get-TextAfterTrigger -Text $text -Trigger 'check-C'
+    $check = Get-TextAfterTrigger -Text $first -Trigger 'check-C'
     if ($null -ne $check) { return ('status ' + $check.Trim()).Trim() }
 
-    $notifyCn = Get-TextAfterTrigger -Text $text -Trigger $script:NotifyTrigger
+    $notifyCn = Get-TextAfterTrigger -Text $first -Trigger $script:NotifyTrigger
     if ($null -ne $notifyCn) { return $notifyCn.Trim() }
 
-    $checkCn = Get-TextAfterTrigger -Text $text -Trigger $script:CheckTrigger
+    $checkCn = Get-TextAfterTrigger -Text $first -Trigger $script:CheckTrigger
     if ($null -ne $checkCn) { return ('status ' + $checkCn.Trim()).Trim() }
 
-    $officeIndex = $text.IndexOf('@office-codex', [System.StringComparison]::OrdinalIgnoreCase)
+    $officeIndex = $first.IndexOf('@office-codex', [System.StringComparison]::OrdinalIgnoreCase)
     if ($officeIndex -ge 0) {
-        $cmd = $text.Substring($officeIndex + '@office-codex'.Length).Trim()
+        $cmd = $first.Substring($officeIndex + '@office-codex'.Length).Trim()
         if ($cmd) { return $cmd }
+        if ($remaining) { return $remaining }
         return 'status'
     }
 
