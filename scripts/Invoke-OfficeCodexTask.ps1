@@ -68,43 +68,12 @@ function Test-UnsafeTask {
     }
 
     return $null
-
-<#
-    $patterns = @(
-        '(?i)\bdeploy\b',
-        '(?i)\bdelete\b',
-        '(?i)\bremove\b',
-        '(?i)\brm\s+-rf\b',
-        '(?i)\bpush\s+main\b',
-        '(?i)\bgit\s+push\b',
-        '(?i)\bsecret\b',
-        '(?i)\btoken\b',
-        '(?i)\bpassword\b',
-        '(?i)\bapi[_-]?key\b',
-        '部署',
-        '刪除',
-        '移除',
-        '推送\s*main',
-        '密碼',
-        '憑證',
-        '權杖',
-        '金鑰',
-        '付費',
-        '付款',
-        '系統設定'
-    )
-
-    foreach ($pattern in $patterns) {
-        if ($Text -match $pattern) { return $pattern }
-    }
-    return $null
-#>
 }
 
 function Get-SafeOutputTail {
     param(
         [string[]]$Lines,
-        [int]$MaxLines = 80,
+        [int]$MaxLines = 120,
         [int]$MaxChars = 6000
     )
 
@@ -132,6 +101,49 @@ function Get-SafeOutputTail {
     }
 
     return $text.Trim()
+}
+
+function Invoke-CodexExec {
+    param(
+        [Parameter(Mandatory = $true)][string]$CodexPath,
+        [Parameter(Mandatory = $true)][string]$WorkingDirectory,
+        [Parameter(Mandatory = $true)][string]$Prompt
+    )
+
+    $tempBase = Join-Path ([System.IO.Path]::GetTempPath()) ('office-codex-' + [guid]::NewGuid().ToString('N'))
+    $stdoutPath = $tempBase + '.out.txt'
+    $stderrPath = $tempBase + '.err.txt'
+
+    $filePath = $CodexPath
+    $arguments = @('exec', '--cd', $WorkingDirectory, $Prompt)
+
+    if ($CodexPath.EndsWith('.ps1', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $filePath = 'powershell.exe'
+        $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $CodexPath, 'exec', '--cd', $WorkingDirectory, $Prompt)
+    }
+
+    try {
+        $process = Start-Process `
+            -FilePath $filePath `
+            -ArgumentList $arguments `
+            -WorkingDirectory $WorkingDirectory `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath `
+            -NoNewWindow `
+            -Wait `
+            -PassThru
+
+        $stdout = if (Test-Path $stdoutPath) { Get-Content $stdoutPath -ErrorAction SilentlyContinue } else { @() }
+        $stderr = if (Test-Path $stderrPath) { Get-Content $stderrPath -ErrorAction SilentlyContinue } else { @() }
+
+        return [pscustomobject]@{
+            ExitCode = [int]$process.ExitCode
+            Lines = @($stdout + $stderr)
+        }
+    } finally {
+        Remove-Item $stdoutPath -ErrorAction SilentlyContinue
+        Remove-Item $stderrPath -ErrorAction SilentlyContinue
+    }
 }
 
 try {
@@ -182,10 +194,11 @@ User task:
 $task
 "@
 
+    # Keep OPENAI_API_KEY available for Codex if this machine uses API-key auth.
+    # Remove unrelated relay/service secrets from the Codex child process.
     $sensitiveEnvNames = @(
         'GITHUB_TOKEN',
         'OFFICE_CODEX_GITHUB_TOKEN',
-        'OPENAI_API_KEY',
         'LINE_CHANNEL_ACCESS_TOKEN',
         'LINE_CHANNEL_SECRET'
     )
@@ -199,13 +212,7 @@ $task
     }
 
     try {
-        Push-Location $WorkDir
-        try {
-            $output = & $codexCommand.Source exec --cd $WorkDir $codexPrompt 2>&1
-            $exitCode = $LASTEXITCODE
-        } finally {
-            Pop-Location
-        }
+        $run = Invoke-CodexExec -CodexPath $codexCommand.Source -WorkingDirectory $WorkDir -Prompt $codexPrompt
     } finally {
         foreach ($name in $sensitiveEnvNames) {
             if ($null -ne $savedEnv[$name]) {
@@ -214,13 +221,12 @@ $task
         }
     }
 
-    $lines = @($output | ForEach-Object { [string]$_ })
-    $tail = Get-SafeOutputTail -Lines $lines
+    $tail = Get-SafeOutputTail -Lines @($run.Lines)
 
-    if ($exitCode -eq 0) {
-        New-Result -Status 'done' -ExitCode $exitCode -Summary 'Codex CLI completed successfully.' -OutputTail $tail
+    if ($run.ExitCode -eq 0) {
+        New-Result -Status 'done' -ExitCode $run.ExitCode -Summary 'Codex CLI completed successfully.' -OutputTail $tail
     } else {
-        New-Result -Status 'failed' -ExitCode $exitCode -Reason 'Codex CLI returned a non-zero exit code.' -OutputTail $tail
+        New-Result -Status 'failed' -ExitCode $run.ExitCode -Reason 'Codex CLI returned a non-zero exit code.' -OutputTail $tail
     }
 } catch {
     New-Result -Status 'failed' -Reason $_.Exception.Message
