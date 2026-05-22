@@ -32,6 +32,18 @@ Quick mobile command:
 請到 KY-A3A issue #1 留言：@office-codex 3D建模進度回報，不改檔不部署。
 ```
 
+Shortcut alias:
+
+```text
+通知C：3D建模進度回報
+```
+
+Alias rule:
+
+```text
+通知C：<任務> = GitHub issue #1 comment: @office-codex <任務>
+```
+
 ## Safety rules
 
 - Do not commit secrets or API keys.

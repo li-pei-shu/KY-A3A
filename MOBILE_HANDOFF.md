@@ -12,18 +12,42 @@ https://github.com/li-pei-shu/KY-A3A/issues/1
 
 For daily use, send a short instruction. Office Codex will treat short comments in issue #1 as actionable when they mention Codex or an existing project name.
 
-Shortest useful mobile prompt:
+## Shortcut Alias
+
+Teach mobile ChatGPT this once:
+
+```text
+以後我說「通知C：<任務>」，你就使用 GitHub 在 li-pei-shu/KY-A3A 的 issue #1 留言：「@office-codex <任務>」。
+```
+
+Then daily use can be this short:
+
+```text
+通知C：3D建模進度回報
+```
+
+Expected GitHub issue comment:
+
+```text
+@office-codex 3D建模進度回報
+```
+
+Office Codex also accepts direct issue comments that start with `通知C`.
+
+## Quick Examples
+
+Shortest useful mobile prompt without alias setup:
 
 ```text
 請到 KY-A3A issue #1 留言：@office-codex 3D建模進度回報，不改檔不部署。
 ```
 
-Other quick examples:
+Other quick examples after alias setup:
 
 ```text
-請到 KY-A3A issue #1 留言：@office-codex 報修系統進度回報。
-請到 KY-A3A issue #1 留言：@office-codex LINE bot 檢查部署狀態，不要真的部署。
-請到 KY-A3A issue #1 留言：@office-codex KY官網今天先整理待辦，不修改檔案。
+通知C：報修系統進度回報
+通知C：LINE bot 檢查部署狀態，不要真的部署
+通知C：KY官網今天先整理待辦，不修改檔案
 ```
 
 Use the full format only when the request is complex:
