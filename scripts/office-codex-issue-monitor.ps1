@@ -7,7 +7,7 @@ Office Codex Issue Monitor
 
 Purpose:
 - Poll GitHub Issue #1 in li-pei-shu/KY-A3A.
-- Find new commands that contain @office-codex, 通知C, or 查C.
+- Find new commands that contain @office-codex, notify-C, check-C, or the Chinese aliases.
 - Immediately reply with "Status: received task <comment id>".
 - Call scripts/Invoke-OfficeCodexTask.ps1 for safe tasks.
 - Reply with the runner result.
@@ -20,9 +20,6 @@ Optional environment variables:
 - GITHUB_REPO=li-pei-shu/KY-A3A
 - MOBILE_INBOX_ISSUE_NUMBER=1
 - OFFICE_CODEX_WORKDIR=<local repo path>
-
-Token scope:
-- Fine-grained token with access to li-pei-shu/KY-A3A issues: read/write.
 
 Safety:
 - Does not write tokens to disk.
@@ -45,6 +42,10 @@ $StateDir = Join-Path $env:USERPROFILE '.office-codex-relay'
 $StateFile = Join-Path $StateDir 'processed-comments.json'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RunnerScript = Join-Path $ScriptDir 'Invoke-OfficeCodexTask.ps1'
+
+# Build Chinese trigger strings from Unicode code points to avoid PowerShell 5.1 source-encoding issues.
+$NotifyTrigger = ([string][char]0x901A) + ([string][char]0x77E5) + 'C'
+$CheckTrigger = ([string][char]0x67E5) + 'C'
 
 if (-not (Test-Path $StateDir)) {
     New-Item -ItemType Directory -Path $StateDir | Out-Null
@@ -96,24 +97,58 @@ function Save-ProcessedIds {
     ($obj | ConvertTo-Json -Depth 10) | Set-Content -Path $StateFile -Encoding UTF8
 }
 
+function Get-TextAfterTrigger {
+    param(
+        [Parameter(Mandatory = $true)][string]$Text,
+        [Parameter(Mandatory = $true)][string]$Trigger
+    )
+
+    $index = $Text.IndexOf($Trigger, [System.StringComparison]::OrdinalIgnoreCase)
+    if ($index -lt 0) { return $null }
+
+    $start = $index + $Trigger.Length
+    if ($start -ge $Text.Length) { return '' }
+
+    $rest = $Text.Substring($start).Trim()
+    while ($rest.StartsWith(':') -or $rest.StartsWith([string][char]0xFF1A)) {
+        $rest = $rest.Substring(1).Trim()
+    }
+    return $rest
+}
+
 function Is-OfficeCodexCommand {
     param([string]$Body)
-    if ($Body -match '@office-codex') { return $true }
-    if ($Body -match '通知C') { return $true }
-    if ($Body -match '查C') { return $true }
+    if ($Body.IndexOf('@office-codex', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+    if ($Body.IndexOf('notify-C', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+    if ($Body.IndexOf('check-C', [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+    if ($Body.IndexOf($script:NotifyTrigger, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+    if ($Body.IndexOf($script:CheckTrigger, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
     return $false
 }
 
 function Convert-Command {
     param([string]$Body)
     $text = $Body.Trim()
-    if ($text -match '通知C[:：]?\s*(.+)') { return $Matches[1].Trim() }
-    if ($text -match '查C[:：]?\s*(.+)') { return ('status ' + $Matches[1].Trim()) }
-    if ($text -match '@office-codex\s*(.*)') {
-        $cmd = $Matches[1].Trim()
+
+    $notify = Get-TextAfterTrigger -Text $text -Trigger 'notify-C'
+    if ($null -ne $notify) { return $notify.Trim() }
+
+    $check = Get-TextAfterTrigger -Text $text -Trigger 'check-C'
+    if ($null -ne $check) { return ('status ' + $check.Trim()).Trim() }
+
+    $notifyCn = Get-TextAfterTrigger -Text $text -Trigger $script:NotifyTrigger
+    if ($null -ne $notifyCn) { return $notifyCn.Trim() }
+
+    $checkCn = Get-TextAfterTrigger -Text $text -Trigger $script:CheckTrigger
+    if ($null -ne $checkCn) { return ('status ' + $checkCn.Trim()).Trim() }
+
+    $officeIndex = $text.IndexOf('@office-codex', [System.StringComparison]::OrdinalIgnoreCase)
+    if ($officeIndex -ge 0) {
+        $cmd = $text.Substring($officeIndex + '@office-codex'.Length).Trim()
         if ($cmd) { return $cmd }
         return 'status'
     }
+
     return $text
 }
 
@@ -143,12 +178,8 @@ Exit code: $exitCode
 Need user decision: $needDecision
 "@
 
-    if ($reason) {
-        $body += "`nReason: $reason`n"
-    }
-    if ($summary) {
-        $body += "`nSummary: $summary`n"
-    }
+    if ($reason) { $body += "`nReason: $reason`n" }
+    if ($summary) { $body += "`nSummary: $summary`n" }
     if ($outputTail) {
         $body += @"
 
@@ -225,6 +256,7 @@ Need user decision: yes
 Write-Host 'Office Codex Issue Monitor started.'
 Write-Host "Repo: $Owner/$Repo Issue #$IssueNumber Poll: $PollSeconds sec"
 Write-Host "Runner: $RunnerScript"
+Write-Host 'Triggers: @office-codex, notify-C, check-C, plus Chinese aliases.'
 
 while ($true) {
     try {
