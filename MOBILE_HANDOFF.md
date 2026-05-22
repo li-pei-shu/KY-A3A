@@ -10,7 +10,23 @@ https://github.com/li-pei-shu/KY-A3A/issues/1
 
 ## Mobile Message Format
 
-Add a new comment to the inbox issue:
+For daily use, send a short instruction. Office Codex will treat short comments in issue #1 as actionable when they mention Codex or an existing project name.
+
+Shortest useful mobile prompt:
+
+```text
+請到 KY-A3A issue #1 留言：@office-codex 3D建模進度回報，不改檔不部署。
+```
+
+Other quick examples:
+
+```text
+請到 KY-A3A issue #1 留言：@office-codex 報修系統進度回報。
+請到 KY-A3A issue #1 留言：@office-codex LINE bot 檢查部署狀態，不要真的部署。
+請到 KY-A3A issue #1 留言：@office-codex KY官網今天先整理待辦，不修改檔案。
+```
+
+Use the full format only when the request is complex:
 
 ```text
 @office-codex

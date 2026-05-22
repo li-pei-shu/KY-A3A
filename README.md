@@ -26,6 +26,12 @@ Mobile Inbox:
 
 https://github.com/li-pei-shu/KY-A3A/issues/1
 
+Quick mobile command:
+
+```text
+請到 KY-A3A issue #1 留言：@office-codex 3D建模進度回報，不改檔不部署。
+```
+
 ## Safety rules
 
 - Do not commit secrets or API keys.
