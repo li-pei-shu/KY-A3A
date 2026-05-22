@@ -1,4 +1,4 @@
-# Codex Instructions for A3A Tzuchi 60 GPT Disciple
+# Codex Instructions for KY-A3A
 
 ## Collaboration Style
 

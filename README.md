@@ -1,10 +1,10 @@
-# a3a-tzuchi60-gpt-disciple
+# KY-A3A
 
 This repository is prepared for Codex Cloud + GitHub workflows.
 
 ## Purpose
 
-Use this repo as the working area for the A3A Tzuchi 60 GPT disciple project. Codex can read the repository, propose changes, create branches, and prepare pull requests for review.
+Use this repo as the working area for the KY-A3A project. Codex can read the repository, propose changes, create branches, and prepare pull requests for review.
 
 ## Recommended first Codex task
 
