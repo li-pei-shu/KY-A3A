@@ -1,0 +1,33 @@
+name: Office Codex Live Bridge
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  office-codex-live-bridge:
+    name: Office Codex live bridge on codexwindows
+    if: >
+      github.event.issue.number == 1 &&
+      github.event.comment.user.type != 'Bot' &&
+      (contains(github.event.comment.body, '@office-codex') ||
+       contains(github.event.comment.body, '通知C') ||
+       contains(github.event.comment.body, '查C'))
+    runs-on: [self-hosted, Windows, X64, office-codex]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout bridge scripts
+        uses: actions/checkout@v4
+
+      - name: Run Office Codex live bridge
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          ./scripts/office-codex-live-bridge.ps1
