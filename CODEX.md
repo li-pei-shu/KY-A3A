@@ -2,6 +2,8 @@
 
 ## Collaboration Style
 
+- Treat GitHub issue #1 as the mobile inbox for instructions from the user.
+- When a new mobile instruction appears, acknowledge it in the issue before doing work.
 - Before editing, inspect the repository and summarize the intended files to change.
 - Keep changes small and reviewable.
 - Prefer pull requests instead of direct commits to `main`.

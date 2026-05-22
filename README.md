@@ -17,10 +17,14 @@ Please inspect this repository first. Do not modify files yet. Summarize the pro
 ## Mobile workflow
 
 1. Open ChatGPT on mobile.
-2. Go to Codex.
-3. Select this GitHub repository.
-4. Start with ask mode for inspection.
-5. Use code mode only after reviewing the proposed file changes.
+2. Use Codex Cloud in the mobile browser, or use ChatGPT with GitHub access.
+3. Send instructions through the Mobile Inbox issue when the office Codex app should continue work.
+4. Use `MOBILE_HANDOFF.md` for the exact message format.
+5. Start with ask mode for inspection when using Codex Cloud.
+
+Mobile Inbox:
+
+https://github.com/li-pei-shu/KY-A3A/issues/1
 
 ## Safety rules
 
