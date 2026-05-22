@@ -71,6 +71,20 @@ function Invoke-GitHubGet {
     Invoke-RestMethod -Method Get -Uri $Uri -Headers (Get-Headers)
 }
 
+function Get-AllIssueComments {
+    $all = @()
+    $page = 1
+    while ($true) {
+        $uri = "https://api.github.com/repos/$Owner/$Repo/issues/$IssueNumber/comments?per_page=100&page=$page"
+        $batch = @(Invoke-GitHubGet -Uri $uri)
+        if (-not $batch -or $batch.Count -eq 0) { break }
+        $all += $batch
+        if ($batch.Count -lt 100) { break }
+        $page += 1
+    }
+    return $all
+}
+
 function Add-IssueComment {
     param([string]$Body)
     $uri = "https://api.github.com/repos/$Owner/$Repo/issues/$IssueNumber/comments"
@@ -293,10 +307,9 @@ Write-Host 'Triggers: @office-codex, notify-C, check-C, plus Chinese aliases.'
 while ($true) {
     try {
         $processed = Load-ProcessedIds
-        $uri = "https://api.github.com/repos/$Owner/$Repo/issues/$IssueNumber/comments?per_page=100"
-        $comments = Invoke-GitHubGet -Uri $uri
+        $comments = Get-AllIssueComments
 
-        foreach ($comment in $comments) {
+        foreach ($comment in ($comments | Sort-Object created_at)) {
             $id = [string]$comment.id
             if ($processed.ContainsKey($id)) { continue }
             $authorType = [string]$comment.user.type
