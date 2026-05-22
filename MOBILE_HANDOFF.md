@@ -2,6 +2,8 @@
 
 Use GitHub as the handoff channel between mobile ChatGPT/Codex Cloud and the office Codex app.
 
+For the shorter remote-control style, see `REMOTE_CONTROL.md`.
+
 ## Inbox
 
 Primary inbox issue:
@@ -17,7 +19,10 @@ For daily use, send a short instruction. Office Codex will treat short comments 
 Teach mobile ChatGPT this once:
 
 ```text
-以後我說「通知C：<任務>」，你就使用 GitHub 在 li-pei-shu/KY-A3A 的 issue #1 留言：「@office-codex <任務>」。
+你是我的辦公室 Codex 遙控器。
+當我說「通知C：<任務>」，你就使用 GitHub 在 li-pei-shu/KY-A3A 的 issue #1 留言：「@office-codex <任務>」。
+當我說「查C：<專案或任務>」，你就使用 GitHub 在 li-pei-shu/KY-A3A 的 issue #1 留言：「@office-codex status <專案或任務>」。
+不要把我的短句改成很長的表格，除非我明確要求。
 ```
 
 Then daily use can be this short:
@@ -33,6 +38,7 @@ Expected GitHub issue comment:
 ```
 
 Office Codex also accepts direct issue comments that start with `通知C`.
+`查C` is the status-only command.
 
 ## Quick Examples
 

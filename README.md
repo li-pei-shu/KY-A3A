@@ -38,11 +38,20 @@ Shortcut alias:
 通知C：3D建模進度回報
 ```
 
+Status alias:
+
+```text
+查C：3D建模
+```
+
 Alias rule:
 
 ```text
 通知C：<任務> = GitHub issue #1 comment: @office-codex <任務>
+查C：<任務> = GitHub issue #1 comment: @office-codex status <任務>
 ```
+
+For remote-control behavior, see `REMOTE_CONTROL.md`.
 
 ## Safety rules
 
