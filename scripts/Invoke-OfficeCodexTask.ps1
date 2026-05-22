@@ -50,17 +50,17 @@ function Test-UnsafeTask {
     }
 
     $literalUnsafeTerms = @(
-        (([string][char]0x90E8) + ([string][char]0x7F72)), # deploy
-        (([string][char]0x522A) + ([string][char]0x9664)), # delete, traditional
-        (([string][char]0x5220) + ([string][char]0x9664)), # delete, simplified
-        (([string][char]0x79FB) + ([string][char]0x9664)), # remove
-        (([string][char]0x63A8) + ([string][char]0x9001)), # push
-        (([string][char]0x5BC6) + ([string][char]0x78BC)), # password, traditional
-        (([string][char]0x5BC6) + ([string][char]0x7801)), # password, simplified
-        (([string][char]0x6191) + ([string][char]0x8B49)), # credential, traditional
-        (([string][char]0x51ED) + ([string][char]0x8BC1)), # credential, simplified
-        (([string][char]0x91D1) + ([string][char]0x9470)), # key, traditional
-        (([string][char]0x5BC6) + ([string][char]0x94A5))  # key, simplified
+        (([string][char]0x90E8) + ([string][char]0x7F72)),
+        (([string][char]0x522A) + ([string][char]0x9664)),
+        (([string][char]0x5220) + ([string][char]0x9664)),
+        (([string][char]0x79FB) + ([string][char]0x9664)),
+        (([string][char]0x63A8) + ([string][char]0x9001)),
+        (([string][char]0x5BC6) + ([string][char]0x78BC)),
+        (([string][char]0x5BC6) + ([string][char]0x7801)),
+        (([string][char]0x6191) + ([string][char]0x8B49)),
+        (([string][char]0x51ED) + ([string][char]0x8BC1)),
+        (([string][char]0x91D1) + ([string][char]0x9470)),
+        (([string][char]0x5BC6) + ([string][char]0x94A5))
     )
 
     foreach ($term in $literalUnsafeTerms) {
@@ -103,6 +103,11 @@ function Get-SafeOutputTail {
     return $text.Trim()
 }
 
+function ConvertTo-SingleQuotedPowerShellString {
+    param([string]$Text)
+    return "'" + ($Text -replace "'", "''") + "'"
+}
+
 function Invoke-CodexExec {
     param(
         [Parameter(Mandatory = $true)][string]$CodexPath,
@@ -113,22 +118,30 @@ function Invoke-CodexExec {
     $tempBase = Join-Path ([System.IO.Path]::GetTempPath()) ('office-codex-' + [guid]::NewGuid().ToString('N'))
     $stdoutPath = $tempBase + '.out.txt'
     $stderrPath = $tempBase + '.err.txt'
+    $promptPath = $tempBase + '.prompt.txt'
+    $wrapperPath = $tempBase + '.run.ps1'
 
-    $filePath = $CodexPath
-    $arguments = @('exec', '--cd', $WorkingDirectory, $Prompt)
+    Set-Content -Path $promptPath -Value $Prompt -Encoding UTF8
 
-    if ($CodexPath.EndsWith('.ps1', [System.StringComparison]::OrdinalIgnoreCase)) {
-        $filePath = 'powershell.exe'
-        $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $CodexPath, 'exec', '--cd', $WorkingDirectory, $Prompt)
-    }
+    $wrapper = @"
+`$ErrorActionPreference = 'Continue'
+`$codexPath = $(ConvertTo-SingleQuotedPowerShellString $CodexPath)
+`$workdir = $(ConvertTo-SingleQuotedPowerShellString $WorkingDirectory)
+`$stdoutPath = $(ConvertTo-SingleQuotedPowerShellString $stdoutPath)
+`$stderrPath = $(ConvertTo-SingleQuotedPowerShellString $stderrPath)
+`$promptPath = $(ConvertTo-SingleQuotedPowerShellString $promptPath)
+`$prompt = Get-Content -Raw -Path `$promptPath
+& `$codexPath exec --cd `$workdir `$prompt > `$stdoutPath 2> `$stderrPath
+exit `$LASTEXITCODE
+"@
+
+    Set-Content -Path $wrapperPath -Value $wrapper -Encoding UTF8
 
     try {
         $process = Start-Process `
-            -FilePath $filePath `
-            -ArgumentList $arguments `
+            -FilePath 'powershell.exe' `
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $wrapperPath) `
             -WorkingDirectory $WorkingDirectory `
-            -RedirectStandardOutput $stdoutPath `
-            -RedirectStandardError $stderrPath `
             -NoNewWindow `
             -Wait `
             -PassThru
@@ -143,6 +156,8 @@ function Invoke-CodexExec {
     } finally {
         Remove-Item $stdoutPath -ErrorAction SilentlyContinue
         Remove-Item $stderrPath -ErrorAction SilentlyContinue
+        Remove-Item $promptPath -ErrorAction SilentlyContinue
+        Remove-Item $wrapperPath -ErrorAction SilentlyContinue
     }
 }
 
