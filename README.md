@@ -1,61 +1,44 @@
 # KY-A3A
 
-This repository is prepared for Codex Cloud + GitHub workflows.
+KY-A3A is the GitHub workspace and relay center for mobile GPT to control the office Codex environment.
 
-## Purpose
-
-Use this repo as the working area for the KY-A3A project. Codex can read the repository, propose changes, create branches, and prepare pull requests for review.
-
-## Recommended first Codex task
-
-Ask Codex Cloud:
+## Core workflow
 
 ```text
-Please inspect this repository first. Do not modify files yet. Summarize the project state, identify missing files needed for a runnable app, and propose a small first implementation plan.
+mobile GPT -> GitHub Issue -> office relay -> Codex CLI -> GitHub reply -> mobile GPT summary
 ```
 
-## Mobile workflow
+## Command roles
 
-1. Open ChatGPT on mobile.
-2. Use Codex Cloud in the mobile browser, or use ChatGPT with GitHub access.
-3. Send instructions through the Mobile Inbox issue when the office Codex app should continue work.
-4. Use `MOBILE_HANDOFF.md` for the exact message format.
-5. Start with ask mode for inspection when using Codex Cloud.
+- `修G`: GPT handles GitHub repo edits directly.
+- `通知C`: GPT posts a task to the Office Codex relay inbox.
+- `查C`: GPT reads `STATUS.md` first and reports the latest task status.
+- `維修C`: use mobile SSH only when the relay itself needs repair.
 
-Mobile Inbox:
+## Current status source
 
-https://github.com/li-pei-shu/KY-A3A/issues/1
+Use `STATUS.md` as the first source for mobile status checks. Issue comments are historical logs and are used only when deeper debugging is needed.
 
-Quick mobile command:
+## Relay scripts
+
+- `scripts/Start-OfficeCodexRelay.ps1`: start, stop, restart, status, logs, and runner test.
+- `scripts/office-codex-issue-monitor.ps1`: watches the inbox issue and dispatches work to the runner.
+- `scripts/Invoke-OfficeCodexTask.ps1`: calls Codex CLI for safe local tasks.
+- `scripts/Get-MobileInbox.ps1`: reads issue comments for debugging.
+
+## Mobile use
+
+Daily operation should happen from mobile GPT:
 
 ```text
-請到 KY-A3A issue #1 留言：@office-codex 3D建模進度回報，不改檔不部署。
+通知C：檢查 KY-A3A 狀態，不要修改檔案
+查C：目前任務
+修G：更新 README
+維修C：查看中繼站狀態
 ```
 
-Shortcut alias:
+## Safety
 
-```text
-通知C：3D建模進度回報
-```
-
-Status alias:
-
-```text
-查C：3D建模
-```
-
-Alias rule:
-
-```text
-通知C：<任務> = GitHub issue #1 comment: @office-codex <任務>
-查C：<任務> = GitHub issue #1 comment: @office-codex status <任務>
-```
-
-For remote-control behavior, see `REMOTE_CONTROL.md`.
-
-## Safety rules
-
-- Do not commit secrets or API keys.
-- Use `.env.example` for environment variable names only.
-- Prefer pull requests over direct commits to `main`.
-- Run tests or validation before proposing a PR when a test command exists.
+- Do not put private credentials in GitHub issues.
+- Use GitHub issues for tasks, status, and links only.
+- Use mobile SSH only for relay repair.
