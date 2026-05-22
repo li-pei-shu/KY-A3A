@@ -1,0 +1,44 @@
+name: Mobile Inbox Immediate Ack
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  ack-mobile-codex-command:
+    name: Ack Office Codex mobile command
+    if: >
+      github.event.issue.number == 1 &&
+      github.event.comment.user.type != 'Bot' &&
+      (contains(github.event.comment.body, '@office-codex') ||
+       contains(github.event.comment.body, '通知C') ||
+       contains(github.event.comment.body, '查C'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reply received acknowledgement
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue_number = context.issue.number;
+            const commentId = context.payload.comment.id;
+            const now = new Date().toISOString();
+            const body = [
+              'Status: received by GitHub bridge.',
+              '',
+              `Task source comment: #${commentId}`,
+              `Received at: ${now}`,
+              '',
+              'GitHub has received this Office Codex command. Office Codex monitor should process it next and reply with the actual result.',
+              '',
+              'If no Office Codex result appears after one monitor cycle, send: 查C：上一個任務'
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              body
+            });
