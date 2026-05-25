@@ -16,7 +16,10 @@ function New-Result {
         [int]$ExitCode = -1,
         [string]$Reason = '',
         [string]$Summary = '',
-        [string]$OutputTail = ''
+        [string]$OutputTail = '',
+        [string]$WorkDir = '',
+        [string]$ChangedFiles = '',
+        [string]$Deployment = 'none'
     )
 
     [ordered]@{
@@ -26,6 +29,9 @@ function New-Result {
         reason = $Reason
         summary = $Summary
         output_tail = $OutputTail
+        workdir = $WorkDir
+        changed_files = $ChangedFiles
+        deployment = $Deployment
     } | ConvertTo-Json -Depth 10
 }
 
@@ -108,16 +114,33 @@ function ConvertTo-SingleQuotedPowerShellString {
     return "'" + ($Text -replace "'", "''") + "'"
 }
 
+function Get-GitChangedFilesText {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    try {
+        $inside = & git -C $Path rev-parse --is-inside-work-tree 2>$null
+        if ($LASTEXITCODE -ne 0 -or $inside -notmatch 'true') { return 'not a git worktree' }
+
+        $status = @(& git -C $Path status --short 2>$null)
+        if (-not $status -or $status.Count -eq 0) { return 'none' }
+        return (($status | Select-Object -First 80) -join "`n")
+    } catch {
+        return 'unable to inspect git status: ' + $_.Exception.Message
+    }
+}
+
 function Invoke-CodexExec {
     param(
         [Parameter(Mandatory = $true)][string]$CodexPath,
         [Parameter(Mandatory = $true)][string]$WorkingDirectory,
-        [Parameter(Mandatory = $true)][string]$Prompt
+        [Parameter(Mandatory = $true)][string]$Prompt,
+        [int]$TimeoutSeconds = 720
     )
 
     $tempBase = Join-Path ([System.IO.Path]::GetTempPath()) ('office-codex-' + [guid]::NewGuid().ToString('N'))
     $stdoutPath = $tempBase + '.out.txt'
     $stderrPath = $tempBase + '.err.txt'
+    $lastMessagePath = $tempBase + '.last.txt'
     $promptPath = $tempBase + '.prompt.txt'
     $wrapperPath = $tempBase + '.run.ps1'
 
@@ -129,9 +152,10 @@ function Invoke-CodexExec {
 `$workdir = $(ConvertTo-SingleQuotedPowerShellString $WorkingDirectory)
 `$stdoutPath = $(ConvertTo-SingleQuotedPowerShellString $stdoutPath)
 `$stderrPath = $(ConvertTo-SingleQuotedPowerShellString $stderrPath)
+`$lastMessagePath = $(ConvertTo-SingleQuotedPowerShellString $lastMessagePath)
 `$promptPath = $(ConvertTo-SingleQuotedPowerShellString $promptPath)
 `$prompt = Get-Content -Raw -Path `$promptPath
-& `$codexPath exec --cd `$workdir `$prompt > `$stdoutPath 2> `$stderrPath
+& `$codexPath exec --cd `$workdir --sandbox workspace-write --output-last-message `$lastMessagePath `$prompt > `$stdoutPath 2> `$stderrPath
 exit `$LASTEXITCODE
 "@
 
@@ -143,19 +167,33 @@ exit `$LASTEXITCODE
             -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $wrapperPath) `
             -WorkingDirectory $WorkingDirectory `
             -NoNewWindow `
-            -Wait `
             -PassThru
+
+        $completed = $process.WaitForExit($TimeoutSeconds * 1000)
+        if (-not $completed) {
+            try { $process.Kill() } catch {}
+            $stdout = if (Test-Path $stdoutPath) { Get-Content $stdoutPath -ErrorAction SilentlyContinue } else { @() }
+            $stderr = if (Test-Path $stderrPath) { Get-Content $stderrPath -ErrorAction SilentlyContinue } else { @() }
+            return [pscustomobject]@{
+                ExitCode = -2
+                Lines = @($stdout + $stderr + "Codex CLI timed out after $TimeoutSeconds seconds.")
+                LastMessage = ''
+            }
+        }
 
         $stdout = if (Test-Path $stdoutPath) { Get-Content $stdoutPath -ErrorAction SilentlyContinue } else { @() }
         $stderr = if (Test-Path $stderrPath) { Get-Content $stderrPath -ErrorAction SilentlyContinue } else { @() }
+        $lastMessage = if (Test-Path $lastMessagePath) { (Get-Content $lastMessagePath -Raw -ErrorAction SilentlyContinue).Trim() } else { '' }
 
         return [pscustomobject]@{
             ExitCode = [int]$process.ExitCode
             Lines = @($stdout + $stderr)
+            LastMessage = $lastMessage
         }
     } finally {
         Remove-Item $stdoutPath -ErrorAction SilentlyContinue
         Remove-Item $stderrPath -ErrorAction SilentlyContinue
+        Remove-Item $lastMessagePath -ErrorAction SilentlyContinue
         Remove-Item $promptPath -ErrorAction SilentlyContinue
         Remove-Item $wrapperPath -ErrorAction SilentlyContinue
     }
@@ -186,6 +224,7 @@ try {
         New-Result -Status 'failed' -Reason "Work directory not found: $WorkDir"
         exit 0
     }
+    $WorkDir = (Resolve-Path $WorkDir).Path
 
     $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
     if (-not $codexCommand) {
@@ -204,6 +243,8 @@ Safety rules:
 - Do not delete files.
 - Do not print, write, or reveal tokens, keys, passwords, or secrets.
 - If the task needs a high-impact action, stop and report what confirmation is required.
+- Work only inside this workspace unless the user provided an explicit safe local path.
+- Keep the final answer concise and include: what you did, files changed, tests/checks run, deployment status, and whether a user decision is needed.
 
 User task:
 $task
@@ -237,11 +278,14 @@ $task
     }
 
     $tail = Get-SafeOutputTail -Lines @($run.Lines)
+    $changedFiles = Get-GitChangedFilesText -Path $WorkDir
+    $summary = if ($run.LastMessage) { $run.LastMessage } else { 'Codex CLI completed without a final-message file.' }
 
     if ($run.ExitCode -eq 0) {
-        New-Result -Status 'done' -ExitCode $run.ExitCode -Summary 'Codex CLI completed successfully.' -OutputTail $tail
+        $successTail = if ($run.LastMessage) { '' } else { $tail }
+        New-Result -Status 'done' -ExitCode $run.ExitCode -Summary $summary -OutputTail $successTail -WorkDir $WorkDir -ChangedFiles $changedFiles
     } else {
-        New-Result -Status 'failed' -ExitCode $run.ExitCode -Reason 'Codex CLI returned a non-zero exit code.' -OutputTail $tail
+        New-Result -Status 'failed' -ExitCode $run.ExitCode -Reason 'Codex CLI returned a non-zero exit code.' -Summary $summary -OutputTail $tail -WorkDir $WorkDir -ChangedFiles $changedFiles
     }
 } catch {
     New-Result -Status 'failed' -Reason $_.Exception.Message

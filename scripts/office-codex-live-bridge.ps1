@@ -203,6 +203,154 @@ function Get-SafeStatus {
     return $result
 }
 
+function Test-StatusOnlyCommand {
+    param([Parameter(Mandatory = $true)][string]$Command)
+
+    $trimmed = $Command.Trim()
+    if ([string]::IsNullOrWhiteSpace($trimmed)) { return $true }
+    if ($trimmed.StartsWith('status', [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    if ($trimmed.StartsWith('check', [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    return $false
+}
+
+function Resolve-OfficeCodexWorkDir {
+    param([Parameter(Mandatory = $true)][string]$Command)
+
+    $bridgeRepo = 'C:/Users/st/Documents/Codex/2026-05-22/gpt-codex-codex/KY-A3A'
+    $documents = ([string][char]0x6587) + ([string][char]0x4EF6)
+    $modeling = ([string][char]0x5EFA) + ([string][char]0x6A21)
+    $a3aRepo = 'C:/Users/st/OneDrive/' + $documents + '/3D' + $modeling + '/a3a'
+
+    $lower = $Command.ToLowerInvariant()
+    $mentionsBridge = (
+        $lower.Contains('ky-a3a') -or
+        $lower.Contains('github') -or
+        $lower.Contains('issue') -or
+        $lower.Contains('relay') -or
+        $lower.Contains('runner')
+    )
+    if ($mentionsBridge -and (Test-Path -LiteralPath $bridgeRepo)) { return (Resolve-Path $bridgeRepo).Path }
+
+    $mentionsA3a = (
+        $lower.Contains('3d') -or
+        $lower.Contains('a3a') -or
+        $Command.Contains($modeling)
+    )
+    if ($mentionsA3a -and (Test-Path -LiteralPath $a3aRepo)) { return (Resolve-Path $a3aRepo).Path }
+
+    if ($env:OFFICE_CODEX_WORKDIR -and (Test-Path -LiteralPath $env:OFFICE_CODEX_WORKDIR)) {
+        return (Resolve-Path $env:OFFICE_CODEX_WORKDIR).Path
+    }
+
+    if (Test-Path -LiteralPath $bridgeRepo) { return (Resolve-Path $bridgeRepo).Path }
+    return (Get-Location).Path
+}
+
+function Get-SafeCommentText {
+    param(
+        [string]$Text,
+        [int]$MaxChars = 5000
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
+    $safe = $Text
+    $redactions = @(
+        '(?i)(github[_-]?token\s*[=:]\s*)\S+',
+        '(?i)(openai[_-]?api[_-]?key\s*[=:]\s*)\S+',
+        '(?i)(api[_-]?key\s*[=:]\s*)\S+',
+        '(?i)(password\s*[=:]\s*)\S+',
+        '(?i)(secret\s*[=:]\s*)\S+',
+        '(?i)(token\s*[=:]\s*)\S+',
+        'gh[pousr]_[A-Za-z0-9_]+',
+        'sk-[A-Za-z0-9_-]+'
+    )
+    foreach ($pattern in $redactions) {
+        $safe = [regex]::Replace($safe, $pattern, '$1[REDACTED]')
+    }
+    if ($safe.Length -gt $MaxChars) {
+        $safe = $safe.Substring(0, $MaxChars) + "`n...[truncated]"
+    }
+    return $safe.Trim()
+}
+
+function Invoke-OfficeCodexTaskRunner {
+    param(
+        [Parameter(Mandatory = $true)][string]$Command,
+        [Parameter(Mandatory = $true)][string]$CommentId,
+        [Parameter(Mandatory = $true)][string]$WorkDir
+    )
+
+    $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $PSCommandPath }
+    $runnerScript = Join-Path $scriptDir 'Invoke-OfficeCodexTask.ps1'
+    if (-not (Test-Path -LiteralPath $runnerScript)) {
+        throw "Runner script not found: $runnerScript"
+    }
+
+    $jsonText = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runnerScript -TaskBody $Command -CommentId $CommentId -WorkDir $WorkDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "Runner process failed with exit code $LASTEXITCODE."
+    }
+
+    try {
+        return ($jsonText | ConvertFrom-Json)
+    } catch {
+        $safe = Get-SafeCommentText -Text (($jsonText | Out-String).Trim()) -MaxChars 3000
+        return [pscustomobject]@{
+            status = 'failed'
+            comment_id = $CommentId
+            exit_code = -1
+            reason = 'Runner returned non-JSON output.'
+            summary = ''
+            output_tail = $safe
+            workdir = $WorkDir
+            changed_files = 'unknown'
+            deployment = 'none'
+        }
+    }
+}
+
+function Convert-TaskResultToIssueBody {
+    param(
+        [Parameter(Mandatory = $true)]$Result,
+        [Parameter(Mandatory = $true)][string]$CommentId,
+        [Parameter(Mandatory = $true)][string]$Command
+    )
+
+    $status = if ($Result.status) { [string]$Result.status } else { 'failed' }
+    $exitCode = if ($null -ne $Result.exit_code) { [string]$Result.exit_code } else { 'unknown' }
+    $reason = Get-SafeCommentText -Text ([string]$Result.reason) -MaxChars 1200
+    $summary = Get-SafeCommentText -Text ([string]$Result.summary) -MaxChars 5000
+    $outputTail = Get-SafeCommentText -Text ([string]$Result.output_tail) -MaxChars 3500
+    $workdir = Get-SafeCommentText -Text ([string]$Result.workdir) -MaxChars 500
+    $changedFiles = Get-SafeCommentText -Text ([string]$Result.changed_files) -MaxChars 1600
+    $deployment = if ($Result.deployment) { Get-SafeCommentText -Text ([string]$Result.deployment) -MaxChars 500 } else { 'none' }
+    $needDecision = if ($status -eq 'blocked') { 'yes' } else { 'no' }
+
+    $parts = @(
+        "Status: $status by Office Codex task runner.",
+        '',
+        "Task source comment: #$CommentId",
+        'Command: ' + $Command,
+        'Workdir: ' + $workdir,
+        'Exit code: ' + $exitCode,
+        'Need user decision: ' + $needDecision,
+        'Files changed: ' + $(if ($changedFiles) { $changedFiles } else { 'none' }),
+        'Deployment: ' + $deployment
+    )
+
+    if ($reason) {
+        $parts += @('', 'Reason: ' + $reason)
+    }
+    if ($summary) {
+        $parts += @('', 'Summary:', '```text', $summary, '```')
+    }
+    if ($outputTail) {
+        $parts += @('', 'Output tail:', '```text', $outputTail, '```')
+    }
+
+    return ($parts -join $NewLine)
+}
+
 $event = Get-Content $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
 $commentBody = [string]$event.comment.body
 $sourceCommentId = ([System.Convert]::ToString($event.comment.id, [System.Globalization.CultureInfo]::InvariantCulture) -replace '[^\d]', '')
@@ -222,19 +370,43 @@ if ($blockedPattern) {
     exit 0
 }
 
-$status = Get-SafeStatus -Command $command
-$statusText = ($status.GetEnumerator() | ForEach-Object {
-    '## ' + $_.Key + $NewLine + $_.Value
-}) -join ($NewLine + $NewLine)
+if (Test-StatusOnlyCommand -Command $command) {
+    $status = Get-SafeStatus -Command $command
+    $statusText = ($status.GetEnumerator() | ForEach-Object {
+        '## ' + $_.Key + $NewLine + $_.Value
+    }) -join ($NewLine + $NewLine)
 
-$body = @(
-    'Status: live bridge checked on codexwindows.',
-    '',
-    "Task source comment: #$sourceCommentId",
-    '',
-    $statusText,
-    '',
-    'Note: This live bridge is currently status-only. It did not modify project files, deploy, or expose credentials.'
-) -join $NewLine
+    $body = @(
+        'Status: live bridge checked on codexwindows.',
+        '',
+        "Task source comment: #$sourceCommentId",
+        '',
+        $statusText,
+        '',
+        'Note: This status check did not modify project files, deploy, or expose credentials.'
+    ) -join $NewLine
 
-Write-GitHubIssueComment -Body $body
+    Write-GitHubIssueComment -Body $body
+    exit 0
+}
+
+try {
+    $workDir = Resolve-OfficeCodexWorkDir -Command $command
+    $result = Invoke-OfficeCodexTaskRunner -Command $command -CommentId $sourceCommentId -WorkDir $workDir
+    $body = Convert-TaskResultToIssueBody -Result $result -CommentId $sourceCommentId -Command $command
+    Write-GitHubIssueComment -Body $body
+} catch {
+    $body = @(
+        'Status: failed by Office Codex task runner.',
+        '',
+        "Task source comment: #$sourceCommentId",
+        'Command: ' + $command,
+        'Exit code: -1',
+        'Need user decision: yes',
+        'Files changed: unknown',
+        'Deployment: none',
+        '',
+        'Reason: ' + (Get-SafeCommentText -Text $_.Exception.Message -MaxChars 1200)
+    ) -join $NewLine
+    Write-GitHubIssueComment -Body $body
+}

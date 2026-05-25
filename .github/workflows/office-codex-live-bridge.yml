@@ -17,7 +17,7 @@ jobs:
       !startsWith(github.event.comment.body, 'Status:') &&
       !startsWith(github.event.comment.body, 'OFFICE_CODEX_')
     runs-on: [self-hosted, Windows, X64, office-codex]
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - name: Checkout bridge scripts
         uses: actions/checkout@v4
