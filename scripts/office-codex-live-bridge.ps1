@@ -330,12 +330,12 @@ function Convert-TaskResultToIssueBody {
         "Status: $status by Office Codex task runner.",
         '',
         "Task source comment: #$CommentId",
-        'Command: ' + $Command,
-        'Workdir: ' + $workdir,
-        'Exit code: ' + $exitCode,
-        'Need user decision: ' + $needDecision,
-        'Files changed: ' + $(if ($changedFiles) { $changedFiles } else { 'none' }),
-        'Deployment: ' + $deployment
+        "Command: $Command",
+        "Workdir: $workdir",
+        "Exit code: $exitCode",
+        "Need user decision: $needDecision",
+        "Files changed: $(if ($changedFiles) { $changedFiles } else { 'none' })",
+        "Deployment: $deployment"
     )
 
     if ($reason) {
@@ -400,7 +400,7 @@ try {
         'Status: failed by Office Codex task runner.',
         '',
         "Task source comment: #$sourceCommentId",
-        'Command: ' + $command,
+        "Command: $command",
         'Exit code: -1',
         'Need user decision: yes',
         'Files changed: unknown',
