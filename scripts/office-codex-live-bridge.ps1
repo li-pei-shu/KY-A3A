@@ -205,7 +205,7 @@ function Get-SafeStatus {
 
 $event = Get-Content $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
 $commentBody = [string]$event.comment.body
-$sourceCommentId = [System.Convert]::ToString($event.comment.id, [System.Globalization.CultureInfo]::InvariantCulture)
+$sourceCommentId = ([System.Convert]::ToString($event.comment.id, [System.Globalization.CultureInfo]::InvariantCulture) -replace '[^\d]', '')
 $command = Convert-MobileCommand -RawBody $commentBody
 
 $blockedPattern = Test-BlockedLiveBridgeCommand -Command $command
@@ -213,7 +213,7 @@ if ($blockedPattern) {
     $body = @(
         'Status: blocked by live bridge safety rule.',
         '',
-        'Task source comment: #' + $sourceCommentId,
+        "Task source comment: #$sourceCommentId",
         'Command: ' + $command,
         '',
         'Reason: This command contains sensitive or high-impact keywords. Use the normal Office Codex monitored workflow for this task.'
@@ -230,7 +230,7 @@ $statusText = ($status.GetEnumerator() | ForEach-Object {
 $body = @(
     'Status: live bridge checked on codexwindows.',
     '',
-    'Task source comment: #' + $sourceCommentId,
+    "Task source comment: #$sourceCommentId",
     '',
     $statusText,
     '',
