@@ -14,9 +14,8 @@ jobs:
     if: >
       github.event.issue.number == 1 &&
       github.event.comment.user.type != 'Bot' &&
-      (contains(github.event.comment.body, '@office-codex') ||
-       contains(github.event.comment.body, '通知C') ||
-       contains(github.event.comment.body, '查C'))
+      !startsWith(github.event.comment.body, 'Status:') &&
+      !startsWith(github.event.comment.body, 'OFFICE_CODEX_')
     runs-on: ubuntu-latest
     steps:
       - name: Reply received acknowledgement
@@ -32,9 +31,9 @@ jobs:
               `Task source comment: #${commentId}`,
               `Received at: ${now}`,
               '',
-              'GitHub has received this Office Codex command. Office Codex monitor should process it next and reply with the actual result.',
+              'GitHub received this Office Codex command. The office bridge or monitor should process it next and reply with the actual result.',
               '',
-              'If no Office Codex result appears after one monitor cycle, send: 查C：上一個任務'
+              'If no Office Codex result appears after one monitor cycle, send: check-C: status'
             ].join('\n');
             await github.rest.issues.createComment({
               owner: context.repo.owner,
