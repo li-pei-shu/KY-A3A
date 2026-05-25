@@ -16,7 +16,8 @@ function Write-GitHubIssueComment {
         'User-Agent' = 'office-codex-live-bridge'
     }
     $payload = @{ body = $Body } | ConvertTo-Json -Depth 10
-    Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json' -Body $payload | Out-Null
+    $payloadBytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
+    Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $payloadBytes | Out-Null
 }
 
 function Get-TextAfterTrigger {
@@ -204,7 +205,7 @@ function Get-SafeStatus {
 
 $event = Get-Content $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
 $commentBody = [string]$event.comment.body
-$sourceCommentId = $event.comment.id
+$sourceCommentId = [System.Convert]::ToString($event.comment.id, [System.Globalization.CultureInfo]::InvariantCulture)
 $command = Convert-MobileCommand -RawBody $commentBody
 
 $blockedPattern = Test-BlockedLiveBridgeCommand -Command $command
