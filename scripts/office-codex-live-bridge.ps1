@@ -1,4 +1,4 @@
-$ErrorActionPreference = Stop
+$ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 $OutputEncoding = [System.Text.UTF8Encoding]::new()
 $NewLine = [Environment]::NewLine
@@ -7,16 +7,16 @@ function Write-GitHubIssueComment {
     param([Parameter(Mandatory = $true)][string]$Body)
 
     $event = Get-Content $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
-    $parts = $env:GITHUB_REPOSITORY.Split(/)
-    $uri = https://api.github.com/repos/ + $parts[0] + / + $parts[1] + /issues/ + $event.issue.number + /comments
+    $parts = $env:GITHUB_REPOSITORY.Split('/')
+    $uri = 'https://api.github.com/repos/' + $parts[0] + '/' + $parts[1] + '/issues/' + $event.issue.number + '/comments'
     $headers = @{
-        Authorization = Bearer  + $env:GITHUB_TOKEN
-        Accept = application/vnd.github+json
-        X-GitHub-Api-Version = 2022-11-28
-        User-Agent = office-codex-live-bridge
+        Authorization = 'Bearer ' + $env:GITHUB_TOKEN
+        Accept = 'application/vnd.github+json'
+        'X-GitHub-Api-Version' = '2022-11-28'
+        'User-Agent' = 'office-codex-live-bridge'
     }
     $payload = @{ body = $Body } | ConvertTo-Json -Depth 10
-    Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType application/json -Body $payload | Out-Null
+    Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/json' -Body $payload | Out-Null
 }
 
 function Get-TextAfterTrigger {
@@ -28,10 +28,10 @@ function Get-TextAfterTrigger {
     $index = $Text.IndexOf($Trigger, [System.StringComparison]::OrdinalIgnoreCase)
     if ($index -lt 0) { return $null }
     $start = $index + $Trigger.Length
-    if ($start -ge $Text.Length) { return  }
+    if ($start -ge $Text.Length) { return '' }
 
     $rest = $Text.Substring($start).Trim()
-    while ($rest.StartsWith(:) -or $rest.StartsWith([string][char]0xFF1A)) {
+    while ($rest.StartsWith(':') -or $rest.StartsWith([string][char]0xFF1A)) {
         $rest = $rest.Substring(1).Trim()
     }
     return $rest
@@ -41,7 +41,7 @@ function Convert-MobileCommand {
     param([Parameter(Mandatory = $true)][string]$RawBody)
 
     $text = $RawBody.Trim()
-    $lines = @($text.Replace([string][char]13, ) -split ([string][char]10))
+    $lines = @($text.Replace([string][char]13, '') -split ([string][char]10))
     $firstIndex = -1
     for ($i = 0; $i -lt $lines.Count; $i++) {
         if (-not [string]::IsNullOrWhiteSpace($lines[$i])) {
@@ -49,35 +49,35 @@ function Convert-MobileCommand {
             break
         }
     }
-    if ($firstIndex -lt 0) { return  }
+    if ($firstIndex -lt 0) { return '' }
 
     $first = $lines[$firstIndex].Trim()
-    $remaining = 
+    $remaining = ''
     if ($firstIndex + 1 -lt $lines.Count) {
         $remaining = (($lines | Select-Object -Skip ($firstIndex + 1)) -join ([string][char]10)).Trim()
     }
 
-    $notifyCn = ([string][char]0x901A) + ([string][char]0x77E5) + C
-    $checkCn = ([string][char]0x67E5) + C
+    $notifyCn = ([string][char]0x901A) + ([string][char]0x77E5) + 'C'
+    $checkCn = ([string][char]0x67E5) + 'C'
 
-    $notify = Get-TextAfterTrigger -Text $first -Trigger notify-C
+    $notify = Get-TextAfterTrigger -Text $first -Trigger 'notify-C'
     if ($null -ne $notify) { return $notify.Trim() }
 
-    $check = Get-TextAfterTrigger -Text $first -Trigger check-C
-    if ($null -ne $check) { return (status  + $check.Trim()).Trim() }
+    $check = Get-TextAfterTrigger -Text $first -Trigger 'check-C'
+    if ($null -ne $check) { return ('status ' + $check.Trim()).Trim() }
 
     $notifyChinese = Get-TextAfterTrigger -Text $first -Trigger $notifyCn
     if ($null -ne $notifyChinese) { return $notifyChinese.Trim() }
 
     $checkChinese = Get-TextAfterTrigger -Text $first -Trigger $checkCn
-    if ($null -ne $checkChinese) { return (status  + $checkChinese.Trim()).Trim() }
+    if ($null -ne $checkChinese) { return ('status ' + $checkChinese.Trim()).Trim() }
 
-    $officeIndex = $first.IndexOf(@office-codex, [System.StringComparison]::OrdinalIgnoreCase)
+    $officeIndex = $first.IndexOf('@office-codex', [System.StringComparison]::OrdinalIgnoreCase)
     if ($officeIndex -ge 0) {
-        $cmd = $first.Substring($officeIndex + @office-codex.Length).Trim()
+        $cmd = $first.Substring($officeIndex + '@office-codex'.Length).Trim()
         if ($cmd) { return $cmd }
         if ($remaining) { return $remaining }
-        return status
+        return 'status'
     }
 
     return $text
@@ -88,18 +88,18 @@ function Test-BlockedLiveBridgeCommand {
 
     $lower = $Command.ToLowerInvariant()
     $asciiTerms = @(
-        deploy,
-        delete,
-        remove,
-        rm -rf,
-        git push,
-        push main,
-        secret,
-        token,
-        password,
-        api_key,
-        api-key,
-        api key
+        'deploy',
+        'delete',
+        'remove',
+        'rm -rf',
+        'git push',
+        'push main',
+        'secret',
+        'token',
+        'password',
+        'api_key',
+        'api-key',
+        'api key'
     )
     foreach ($term in $asciiTerms) {
         if ($lower.IndexOf($term, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $term }
@@ -130,7 +130,7 @@ function Get-CommandPathText {
 
     $cmd = Get-Command $Name -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
-    return not found in PATH
+    return 'not found in PATH'
 }
 
 function Get-SafeStatus {
@@ -140,20 +140,20 @@ function Get-SafeStatus {
     $result.command = $Command
     $result.host = $env:COMPUTERNAME
     $result.user = $env:USERNAME
-    $result.time = (Get-Date).ToString(s)
+    $result.time = (Get-Date).ToString('s')
     $result.powershell = $PSVersionTable.PSVersion.ToString()
-    $result.codex_cli = Get-CommandPathText -Name codex
-    $result.git = Get-CommandPathText -Name git
+    $result.codex_cli = Get-CommandPathText -Name 'codex'
+    $result.git = Get-CommandPathText -Name 'git'
 
     $tailscale = Get-Command tailscale -ErrorAction SilentlyContinue
     if ($tailscale) {
         try {
             $result.tailscale_status = (& tailscale status --self 2>$null) -join ([string][char]10)
         } catch {
-            $result.tailscale_status = tailscale found but status failed:  + $_.Exception.Message
+            $result.tailscale_status = 'tailscale found but status failed: ' + $_.Exception.Message
         }
     } else {
-        $result.tailscale_status = tailscale command not found
+        $result.tailscale_status = 'tailscale command not found'
     }
 
     $sshd = Get-Service sshd -ErrorAction SilentlyContinue
@@ -161,42 +161,42 @@ function Get-SafeStatus {
         $result.sshd_status = $sshd.Status.ToString()
         $result.sshd_start_type = $sshd.StartType.ToString()
     } else {
-        $result.sshd_status = sshd service not found
+        $result.sshd_status = 'sshd service not found'
     }
 
     $defaultShell = $null
     try {
-        $defaultShell = (Get-ItemProperty -Path HKLM:/SOFTWARE/OpenSSH -Name DefaultShell -ErrorAction SilentlyContinue).DefaultShell
+        $defaultShell = (Get-ItemProperty -Path 'HKLM:/SOFTWARE/OpenSSH' -Name DefaultShell -ErrorAction SilentlyContinue).DefaultShell
     } catch {}
-    $result.openssh_default_shell = if ($defaultShell) { $defaultShell } else { not set; Windows OpenSSH default applies }
+    $result.openssh_default_shell = if ($defaultShell) { $defaultShell } else { 'not set; Windows OpenSSH default applies' }
 
     $possibleSh = @(
-        C:/Program Files/Git/usr/bin/sh.exe,
-        C:/Program Files/Git/bin/bash.exe,
-        C:/Program Files (x86)/Git/usr/bin/sh.exe,
-        C:/Program Files (x86)/Git/bin/bash.exe
+        'C:/Program Files/Git/usr/bin/sh.exe',
+        'C:/Program Files/Git/bin/bash.exe',
+        'C:/Program Files (x86)/Git/usr/bin/sh.exe',
+        'C:/Program Files (x86)/Git/bin/bash.exe'
     )
     $result.git_bash_paths = ($possibleSh | ForEach-Object {
-        if (Test-Path $_) { FOUND:  + $_ } else { missing:  + $_ }
+        if (Test-Path $_) { 'FOUND: ' + $_ } else { 'missing: ' + $_ }
     }) -join ([string][char]10)
 
     $documents = ([string][char]0x6587) + ([string][char]0x4EF6)
     $modeling = ([string][char]0x5EFA) + ([string][char]0x6A21)
     $a3aCandidates = @(
-        (C:/Users/st/OneDrive/ + $documents + /3D + $modeling + /a3a),
-        C:/CodexRemote/workspace/a3a
+        ('C:/Users/st/OneDrive/' + $documents + '/3D' + $modeling + '/a3a'),
+        'C:/CodexRemote/workspace/a3a'
     )
     $a3aPath = $a3aCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
     if ($a3aPath) {
         $result.a3a_path = $a3aPath
         try {
-            $health = Invoke-RestMethod -Uri http://127.0.0.1:8000/health -TimeoutSec 3
+            $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/health' -TimeoutSec 3
             $result.a3a_health = ($health | ConvertTo-Json -Depth 5 -Compress)
         } catch {
-            $result.a3a_health = health check failed:  + $_.Exception.Message
+            $result.a3a_health = 'health check failed: ' + $_.Exception.Message
         }
     } else {
-        $result.a3a_path = not found at expected paths
+        $result.a3a_path = 'not found at expected paths'
     }
 
     return $result
@@ -210,12 +210,12 @@ $command = Convert-MobileCommand -RawBody $commentBody
 $blockedPattern = Test-BlockedLiveBridgeCommand -Command $command
 if ($blockedPattern) {
     $body = @(
-        Status: blocked by live bridge safety rule.,
-        ,
-        Task source comment: # + $sourceCommentId,
-        Command:  + $command,
-        ,
-        Reason: This command contains sensitive or high-impact keywords. Use the normal Office Codex monitored workflow for this task.
+        'Status: blocked by live bridge safety rule.',
+        '',
+        'Task source comment: #' + $sourceCommentId,
+        'Command: ' + $command,
+        '',
+        'Reason: This command contains sensitive or high-impact keywords. Use the normal Office Codex monitored workflow for this task.'
     ) -join $NewLine
     Write-GitHubIssueComment -Body $body
     exit 0
@@ -223,17 +223,17 @@ if ($blockedPattern) {
 
 $status = Get-SafeStatus -Command $command
 $statusText = ($status.GetEnumerator() | ForEach-Object {
-    ##  + $_.Key + $NewLine + $_.Value
+    '## ' + $_.Key + $NewLine + $_.Value
 }) -join ($NewLine + $NewLine)
 
 $body = @(
-    Status: live bridge checked on codexwindows.,
-    ,
-    Task source comment: # + $sourceCommentId,
-    ,
+    'Status: live bridge checked on codexwindows.',
+    '',
+    'Task source comment: #' + $sourceCommentId,
+    '',
     $statusText,
-    ,
-    Note: This live bridge is currently status-only. It did not modify project files, deploy, or expose credentials.
+    '',
+    'Note: This live bridge is currently status-only. It did not modify project files, deploy, or expose credentials.'
 ) -join $NewLine
 
 Write-GitHubIssueComment -Body $body
