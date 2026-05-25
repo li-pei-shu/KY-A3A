@@ -14,9 +14,8 @@ jobs:
     if: >
       github.event.issue.number == 1 &&
       github.event.comment.user.type != 'Bot' &&
-      (contains(github.event.comment.body, '@office-codex') ||
-       contains(github.event.comment.body, '通知C') ||
-       contains(github.event.comment.body, '查C'))
+      !startsWith(github.event.comment.body, 'Status:') &&
+      !startsWith(github.event.comment.body, 'OFFICE_CODEX_')
     runs-on: [self-hosted, Windows, X64, office-codex]
     timeout-minutes: 5
     steps:
